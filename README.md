@@ -58,3 +58,25 @@ comments = downloader.get_comments_from_url('https://www.youtube.com/watch?v=ScM
 for comment in islice(comments, 10):
     print(comment)
 ```
+
+### Thoibao batch downloader
+
+We bundle a helper script for the Thoibao dataset: `download_youtube_comments.py`. It reads video IDs from `thoibao/article_videos.csv`, maps titles from `thoibao/articles.csv`, and writes comments to `youtube_comments/` as JSONL. Each comment line now includes:
+
+- `video_title`: lấy từ `articles.csv` theo `article_id`
+- `author_url`: link tới kênh tác giả comment
+
+Chạy ví dụ:
+```
+python download_youtube_comments.py \
+  --article-videos thoibao/article_videos.csv \
+  --articles thoibao/articles.csv \
+  --output-dir youtube_comments/thoibao \
+  --sort-by recent \
+  --overwrite
+```
+
+Tuỳ chọn hữu ích:
+- `--limit N` chỉ tải N video đầu (debug)
+- `--max-comments N` giới hạn số comment mỗi video
+- `--language vi` ép ngôn ngữ nếu cần
