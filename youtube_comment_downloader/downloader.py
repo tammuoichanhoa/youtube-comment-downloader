@@ -64,6 +64,7 @@ class YoutubeCommentDownloader:
             ytcfg['INNERTUBE_CONTEXT']['client']['hl'] = language
 
         data = json.loads(self.regex_search(html, YT_INITIAL_DATA_RE, default=''))
+        video_title = self.extract_video_title(data, html)
 
         item_section = next(self.search_dict(data, 'itemSectionRenderer'), None)
         renderer = next(self.search_dict(item_section, 'continuationItemRenderer'), None) if item_section else None
@@ -123,6 +124,7 @@ class YoutubeCommentDownloader:
                 properties = comment['properties']
                 cid = properties['commentId']
                 author = comment['author']
+                author_url = self.get_author_url(author)
                 toolbar = comment['toolbar']
                 toolbar_state = toolbar_states[properties['toolbarStateKey']]
                 result = {'cid': cid,
@@ -135,6 +137,10 @@ class YoutubeCommentDownloader:
                           'photo': author['avatarThumbnailUrl'],
                           'heart': toolbar_state.get('heartState', '') == 'TOOLBAR_HEART_STATE_HEARTED',
                           'reply': '.' in cid}
+                if author_url:
+                    result['author_url'] = author_url
+                if video_title:
+                    result['video_title'] = video_title
 
                 try:
                     result['time_parsed'] = dateparser.parse(result['time'].split('(')[0].strip()).timestamp()
@@ -165,3 +171,60 @@ class YoutubeCommentDownloader:
                         stack.append(value)
             elif isinstance(current_item, list):
                 stack.extend(current_item)
+
+    @staticmethod
+    def extract_video_title(initial_data, html):
+        """
+        Extract the video title from the initial data payload or HTML meta tags.
+        Falls back to <title> tag if structured data is unavailable.
+        """
+        title_data = next(YoutubeCommentDownloader.search_dict(initial_data, 'videoTitle'), None)
+        if isinstance(title_data, dict):
+            runs = title_data.get('runs')
+            if runs and isinstance(runs, list):
+                pieces = [run.get('text', '') for run in runs if isinstance(run, dict)]
+                title = ' '.join(piece for piece in pieces if piece)
+                if title:
+                    return title
+            simple_text = title_data.get('simpleText')
+            if simple_text:
+                return simple_text
+
+        # Common on watch pages: title attribute on yt-formatted-string within ytd-watch-metadata
+        h1_match = re.search(
+            r'<yt-formatted-string[^>]+class="[^"]*ytd-watch-metadata[^"]*"[^>]+title="([^"]+)"',
+            html,
+            flags=re.IGNORECASE,
+        )
+        if h1_match:
+            return h1_match.group(1)
+
+        meta_match = re.search(r'<meta[^>]+name="title"[^>]+content="([^"]+)"', html)
+        if meta_match:
+            return meta_match.group(1)
+
+        title_match = re.search(r'<title>(.*?)</title>', html, flags=re.DOTALL | re.IGNORECASE)
+        if title_match:
+            return title_match.group(1).replace('- YouTube', '').strip()
+
+        return None
+
+    @staticmethod
+    def get_author_url(author):
+        """Build a channel URL for the comment author if a channel id/url is available."""
+        if not isinstance(author, dict):
+            return None
+
+        channel_id = author.get('channelId')
+        if channel_id:
+            return f'https://www.youtube.com/channel/{channel_id}'
+
+        channel_url = author.get('channelUrl')
+        if channel_url:
+            if channel_url.startswith('//'):
+                return 'https:' + channel_url
+            if channel_url.startswith('/'):
+                return 'https://www.youtube.com' + channel_url
+            return channel_url
+
+        return None
